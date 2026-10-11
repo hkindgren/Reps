@@ -84,18 +84,21 @@ let ui = {mode:"home", draftMax:null, run:null};
 let storageOk = true, showBackup = false;
 async function load(){
   try{ const v = localStorage.getItem(KEY); if(v) state = JSON.parse(v); }catch(e){}
+  try{ const u = localStorage.getItem(KEY+"-ui"); if(u){ const x=JSON.parse(u); if(x&&x.mode==="run"&&x.run){ x.run.resting=false; ui=x; } } }catch(e){}
+  try{ navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); }catch(e){}
   render();
 }
 async function save(){
   if(!storageOk) return;
   try{
     localStorage.setItem(KEY, JSON.stringify(state));
+    localStorage.setItem(KEY+"-ui", JSON.stringify(ui.mode==="run"?ui:{mode:"home"}));
   }catch(e){ storageOk = false; render(); }
 }
 function backupCode(){ return btoa(unescape(encodeURIComponent(JSON.stringify(state)))); }
 function restoreBackup(){
   const v = document.getElementById("bk").value.trim();
-  try{ state = JSON.parse(decodeURIComponent(escape(atob(v)))); showBackup=false; render(); }
+  try{ state = JSON.parse(decodeURIComponent(escape(atob(v)))); showBackup=false; save(); render(); }
   catch(e){ document.getElementById("bkmsg").textContent = "Koden gick inte att läsa. Kontrollera att hela koden kom med."; }
 }
 async function copyBackup(){
@@ -160,7 +163,7 @@ function render(){
   app.insertAdjacentHTML("beforeend", backupSection() +
     (storageOk&&!showBackup?`<button class="link" onclick="showBackup=true;render()">Backup / flytta data</button>`:""));
 }
-function pick(k){ if(ui.mode==="run") return; state.active=k; ui={mode:"home",draftMax:null,run:null}; render(); }
+function pick(k){ if(ui.mode==="run") return; state.active=k; ui={mode:"home",draftMax:null,run:null}; save(); render(); }
 
 function forecastBlock(k,M,G){
   if(M>=G) return `<div class="forecast">Du klarar redan målet. Höj det!</div>`;
@@ -251,13 +254,13 @@ function renderRun(app){
     <p class="muted">${r.neg&&!last?"Långsamma negativa, 4–5 sek ned.":last?(r.neg?"Hela pull-ups, så många du klarar.":"Så många du orkar."):EX[k].unit}</p>
     ${last?`<label for="lr">Hur många blev det?</label><input id="lr" type="number" min="0" inputmode="numeric" value="${r.sets[r.i]}">`:""}
     <button class="go" onclick="doneSet()">Klart</button>
-    <button class="link" onclick="if(confirm('Avbryta passet?')){clearInterval(tick);ui={mode:'home'};render()}">Avbryt pass</button>
+    <button class="link" onclick="if(confirm('Avbryta passet?')){clearInterval(tick);ui={mode:'home'};save();render()}">Avbryt pass</button>
   </section>`;
 }
 function doneSet(){
   const r=ui.run;
-  if(r.i===r.sets.length-1){ r.lastReps=+(document.getElementById("lr").value||0); r.i++; render(); return; }
-  r.i++; r.resting=true; r.left=r.rest; render();
+  if(r.i===r.sets.length-1){ r.lastReps=+(document.getElementById("lr").value||0); r.i++; save(); render(); return; }
+  r.i++; r.resting=true; r.left=r.rest; save(); render();
   clearInterval(tick);
   tick=setInterval(()=>{ r.left--; const el=document.getElementById("t"); if(el) el.textContent=r.left;
     if(r.left<=0){ endRest(); try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){} } },1000);
@@ -276,6 +279,8 @@ function finish(feel){
 }
 document.getElementById("sub").textContent="3 pass i veckan";
 load();
+addEventListener("pagehide",save);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") save(); });
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
 </body>
