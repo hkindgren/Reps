@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reps</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-512.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Reps">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#E6E3DC">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --concrete:#E6E3DC; --paper:#F4F2EE; --ink:#1E2830; --steel:#5A7484;
+  --plate:#F0BE2C; --red:#C8432F; --line:#C9C4B8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--concrete);color:var(--ink);font:16px/1.5 Archivo,system-ui,sans-serif;min-height:100vh}
+.wrap{max-width:520px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top)) 18px 60px}
+h1,.num,.tab,.big{font-family:"Barlow Condensed",sans-serif}
+header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px}
+h1{font-size:30px;font-weight:800;letter-spacing:.5px}
+.tabs{display:flex;gap:6px;margin-bottom:22px}
+.tab{flex:1;border:2px solid var(--ink);background:transparent;padding:10px 4px;font-size:19px;font-weight:700;cursor:pointer;color:var(--ink);border-radius:3px}
+.tab[aria-selected=true]{background:var(--ink);color:var(--plate)}
+.tab small{display:block;font-size:13px;font-weight:500;opacity:.75}
+section{background:var(--paper);border-radius:4px;padding:20px;margin-bottom:14px}
+h2{font-size:17px;font-weight:600;margin-bottom:10px}
+p.muted{color:var(--steel);font-size:14px}
+.big{font-size:96px;font-weight:800;line-height:.9}
+.goalline{display:flex;align-items:baseline;gap:10px}
+.goalline .of{font-family:"Barlow Condensed";font-size:34px;color:var(--steel);font-weight:500}
+.bar{height:14px;background:var(--concrete);margin:14px 0 6px;position:relative;border-radius:2px;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--plate)}
+.ticks{display:flex;justify-content:space-between;font-size:12px;color:var(--steel)}
+.forecast{border-left:4px solid var(--plate);padding:4px 0 4px 12px;margin-top:14px}
+.forecast b{font-family:"Barlow Condensed";font-size:28px;font-weight:700}
+label{display:block;font-size:14px;margin:12px 0 4px;color:var(--steel)}
+input[type=number]{width:100%;font:700 40px "Barlow Condensed";padding:6px 12px;border:2px solid var(--ink);background:#fff;border-radius:3px;color:var(--ink)}
+button.go{width:100%;margin-top:14px;padding:15px;font:700 21px "Barlow Condensed";letter-spacing:.3px;background:var(--ink);color:var(--plate);border:0;border-radius:3px;cursor:pointer}
+button.alt{background:transparent;color:var(--ink);border:2px solid var(--ink)}
+button.link{background:none;border:0;color:var(--steel);text-decoration:underline;cursor:pointer;font:inherit;font-size:14px;margin-top:12px}
+button:focus-visible,input:focus-visible{outline:3px solid var(--plate);outline-offset:2px}
+.sets{display:flex;gap:6px;margin:8px 0}
+.set{flex:1;text-align:center;padding:10px 0;background:var(--concrete);border-radius:3px;font:700 28px "Barlow Condensed"}
+.set.done{background:var(--ink);color:var(--plate)}
+.set.now{outline:3px solid var(--plate)}
+.set small{display:block;font:500 11px Archivo;opacity:.7}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.feel button{padding:12px 4px;font-size:18px}
+.timer{text-align:center}
+.timer .big{font-size:120px}
+ul.hist{list-style:none}
+ul.hist li{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+ul.hist li:last-child{border:0}
+.tag{font-size:12px;padding:1px 6px;border-radius:2px;background:var(--concrete)}
+.tag.test{background:var(--plate)}
+.note{font-size:13px;color:var(--steel);margin-top:10px}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .6s ease}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>REPS</h1><span class="muted" id="sub"></span></header>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <main id="app"></main>
+</div>
+<script>
+const EX = {
+  pushups:{name:"Armhävningar", goal:100, r:0.10, min:2,   rest:60, unit:"armhävningar",
+    test:"Gör så många armhävningar du kan i ett set med bra form: rak kropp, bröstet nära golvet."},
+  situps:{name:"Sit-ups", goal:200, r:0.11, min:4,   rest:45, unit:"sit-ups",
+    test:"Gör så många sit-ups du kan utan längre paus. Fötterna i golvet, inget ryck i nacken."},
+  pullups:{name:"Pull-ups", goal:20, r:0.07, min:0.5, rest:90, unit:"pull-ups",
+    test:"Häng med raka armar, dra upp tills hakan är över stången. Ingen kipping."}
+};
+const KEY = "reps-state-v1";
+let state = {active:"pushups", p:{}};
+let ui = {mode:"home", draftMax:null, run:null};
+
+let storageOk = true, showBackup = false;
+async function load(){
+  try{ const v = localStorage.getItem(KEY); if(v) state = JSON.parse(v); }catch(e){}
+  render();
+}
+async function save(){
+  if(!storageOk) return;
+  try{
+    localStorage.setItem(KEY, JSON.stringify(state));
+  }catch(e){ storageOk = false; render(); }
+}
+function backupCode(){ return btoa(unescape(encodeURIComponent(JSON.stringify(state)))); }
+function restoreBackup(){
+  const v = document.getElementById("bk").value.trim();
+  try{ state = JSON.parse(decodeURIComponent(escape(atob(v)))); showBackup=false; render(); }
+  catch(e){ document.getElementById("bkmsg").textContent = "Koden gick inte att läsa. Kontrollera att hela koden kom med."; }
+}
+async function copyBackup(){
+  const el=document.getElementById("bk"); el.value=backupCode(); el.select();
+  try{ await navigator.clipboard.writeText(el.value); document.getElementById("bkmsg").textContent="Kopierad. Spara den i Anteckningar."; }
+  catch(e){ document.getElementById("bkmsg").textContent="Markera koden ovan och kopiera den manuellt."; }
+}
+function backupSection(){
+  if(storageOk && !showBackup) return "";
+  return `<section>
+    <h2>Backup</h2>
+    ${storageOk?"":`<p class="muted">Appen kan inte spara automatiskt här. Kopiera backup-koden efter varje pass och klistra in den nästa gång du öppnar appen.</p>`}
+    <textarea id="bk" rows="3" style="width:100%;margin-top:10px;font:13px monospace;padding:8px;border:2px solid var(--ink);border-radius:3px" placeholder="Klistra in en backup-kod här"></textarea>
+    <div class="row"><button class="go alt" onclick="copyBackup()">Kopiera backup</button><button class="go" onclick="restoreBackup()">Läs in backup</button></div>
+    <p class="note" id="bkmsg"></p>
+  </section>`;
+}
+
+/* ---------- prognos ---------- */
+function simulate(M,G,r,min){
+  let m=Math.max(M,0.5), w=0;
+  while(m<G && w<156){ m += Math.max(min, r*m)*(1-0.4*Math.min(m/G,1)); w++; }
+  return w;
+}
+function forecast(key,M,G){
+  const e=EX[key];
+  return {
+    mid: simulate(M,G,e.r,e.min),
+    fast: simulate(M,G,e.r*1.3,e.min*1.3),
+    slow: simulate(M,G,e.r*0.75,e.min*0.75)
+  };
+}
+function addWeeks(w){ const d=new Date(); d.setDate(d.getDate()+w*7); return d.toLocaleDateString("sv-SE",{day:"numeric",month:"long",year:"numeric"}); }
+
+/* ---------- pass ---------- */
+function lastTest(p){ return p.tests[p.tests.length-1]; }
+function sessionsSinceTest(p){ const t=lastTest(p).date; return p.sessions.filter(s=>s.date>t).length; }
+function nextSession(key){
+  const p=state.p[key], e=EX[key];
+  const base = lastTest(p).max * p.level;
+  if(key==="pullups" && base<3){
+    return {neg:true, sets:[3,3,3,3,Math.max(1,Math.round(base))], rest:e.rest+30,
+      hint:"Negativa: hoppa upp till toppläget och sänk dig så långsamt du kan, 4–5 sekunder. Sista setet: så många hela pull-ups du klarar (eller fler negativa)."};
+  }
+  const f=[0.45,0.55,0.45,0.45];
+  const sets=f.map(x=>Math.max(1,Math.round(base*x)));
+  sets.push(Math.max(1,Math.round(base*0.6)));
+  return {neg:false, sets, rest:e.rest, hint:"Sista setet: så många du orkar, men minst siffran som står."};
+}
+
+/* ---------- render ---------- */
+function render(){
+  const tabs=document.getElementById("tabs");
+  tabs.innerHTML = Object.keys(EX).map(k=>{
+    const p=state.p[k]; const s=p?`${lastTest(p).max} / ${p.goal}`:`mål ${EX[k].goal}`;
+    return `<button class="tab" role="tab" aria-selected="${k===state.active}" onclick="pick('${k}')">${EX[k].name}<small>${s}</small></button>`;
+  }).join("");
+  const k=state.active, p=state.p[k];
+  const app=document.getElementById("app");
+  if(ui.mode==="run") return renderRun(app);
+  if(!p || ui.mode==="test") renderTest(app,k,p); else renderHome(app,k,p);
+  app.insertAdjacentHTML("beforeend", backupSection() +
+    (storageOk&&!showBackup?`<button class="link" onclick="showBackup=true;render()">Backup / flytta data</button>`:""));
+}
+function pick(k){ if(ui.mode==="run") return; state.active=k; ui={mode:"home",draftMax:null,run:null}; render(); }
+
+function forecastBlock(k,M,G){
+  if(M>=G) return `<div class="forecast">Du klarar redan målet. Höj det!</div>`;
+  const f=forecast(k,M,G);
+  return `<div class="forecast">Prognos: <b>ca ${f.mid} veckor</b><br>
+    <span class="muted">Troligt spann ${f.fast}–${f.slow} veckor, alltså runt ${addWeeks(f.mid)}. Tre pass i veckan.</span></div>`;
+}
+
+function renderTest(app,k,p){
+  const e=EX[k], goal=p?p.goal:e.goal, M=ui.draftMax;
+  app.innerHTML = `<section>
+    <h2>${p?"Nytt test":"Starta: gör ett test"}</h2>
+    <p class="muted">${e.test} Vila ordentligt innan.</p>
+    <label for="max">Hur många klarade du?</label>
+    <input id="max" type="number" min="0" inputmode="numeric" value="${M??""}" oninput="ui.draftMax=this.value===''?null:+this.value;document.getElementById('fc').innerHTML=ui.draftMax!=null?forecastBlock('${k}',ui.draftMax,+document.getElementById('goal').value):''">
+    <label for="goal">Mål</label>
+    <input id="goal" type="number" min="1" inputmode="numeric" value="${goal}" oninput="if(ui.draftMax!=null)document.getElementById('fc').innerHTML=forecastBlock('${k}',ui.draftMax,+this.value)">
+    <div id="fc">${M!=null?forecastBlock(k,M,goal):""}</div>
+    <button class="go" onclick="saveTest('${k}')">${p?"Spara test":"Starta programmet"}</button>
+    ${p?`<button class="link" onclick="ui.mode='home';render()">Avbryt</button>`:""}
+  </section>`;
+}
+function saveTest(k){
+  const M=+document.getElementById("max").value, G=+document.getElementById("goal").value;
+  if(document.getElementById("max").value===""||G<1){ alert("Fyll i ditt resultat och ett mål."); return; }
+  const now=Date.now();
+  if(!state.p[k]) state.p[k]={goal:G,start:now,tests:[],sessions:[],level:1};
+  const p=state.p[k]; p.goal=G; p.level=1;
+  p.tests.push({date:now,max:M});
+  ui={mode:"home",draftMax:null,run:null}; save(); render();
+}
+
+function renderHome(app,k,p){
+  const t=lastTest(p), M=t.max, pct=Math.min(100,M/p.goal*100);
+  const n=nextSession(k), since=sessionsSinceTest(p);
+  const first=p.tests[0].max, gain=M-first;
+  const items=[...p.tests.map(x=>({d:x.date,t:"test",txt:`${x.max} ${EX[k].unit}`})),
+               ...p.sessions.map(s=>({d:s.date,t:"pass",txt:`${s.total} totalt · ${s.feel}`}))]
+               .sort((a,b)=>b.d-a.d).slice(0,12);
+  app.innerHTML = `
+  <section>
+    <div class="goalline"><span class="big">${M}</span><span class="of">/ ${p.goal}</span></div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="ticks"><span>Senaste test</span><span>${gain>0?`+${gain} sedan start`:"Startvärde"}</span></div>
+    ${forecastBlock(k,M,p.goal)}
+  </section>
+  <section>
+    <h2>Nästa pass · ${n.neg?"negativa pull-ups":"5 set"}</h2>
+    <div class="sets">${n.sets.map((s,i)=>`<div class="set">${s}${i===4&&!n.neg?"+":""}<small>set ${i+1}</small></div>`).join("")}</div>
+    <p class="muted">${n.hint} Vila ${n.rest} sek mellan seten, och minst en vilodag mellan passen.</p>
+    <button class="go" onclick="startRun()">Starta pass</button>
+    ${since>=6?`<button class="go alt" onclick="ui.mode='test';render()">Dags för nytt test</button>`:`<button class="link" onclick="ui.mode='test';render()">Gör nytt test</button>`}
+    <p class="note">Nytt test rekommenderas efter 6 pass (${since} gjorda sedan senaste). Prognosen räknas om efter varje test.</p>
+  </section>
+  <section>
+    <h2>Historik</h2>
+    <ul class="hist">${items.map(i=>`<li><span><span class="tag ${i.t}">${i.t}</span> ${i.txt}</span><span class="muted">${new Date(i.d).toLocaleDateString("sv-SE")}</span></li>`).join("")}</ul>
+    <button class="link" onclick="resetEx('${k}')">Nollställ ${EX[k].name.toLowerCase()}</button>
+  </section>`;
+}
+function resetEx(k){ if(confirm("Radera all data för "+EX[k].name+"?")){ delete state.p[k]; save(); render(); } }
+
+/* ---------- passläge ---------- */
+let tick=null;
+function startRun(){
+  const n=nextSession(state.active);
+  ui.mode="run"; ui.run={...n, i:0, resting:false, left:0, lastReps:n.sets[4]};
+  render();
+}
+function renderRun(app){
+  const r=ui.run, k=state.active;
+  const setsHtml=`<div class="sets">${r.sets.map((s,i)=>`<div class="set ${i<r.i?"done":""} ${i===r.i&&!r.resting?"now":""}">${s}<small>set ${i+1}</small></div>`).join("")}</div>`;
+  if(r.i>=r.sets.length){
+    app.innerHTML=`<section>${setsHtml}<h2>Hur kändes det?</h2>
+      <div class="row feel"><button class="go alt" onclick="finish('för tungt')">För tungt</button><button class="go" onclick="finish('lagom')">Lagom</button><button class="go alt" onclick="finish('lätt')">Lätt</button></div>
+      <p class="note">Nästa pass anpassas efter svaret.</p></section>`;
+    return;
+  }
+  if(r.resting){
+    app.innerHTML=`<section class="timer">${setsHtml}<h2>Vila</h2><div class="big" id="t">${r.left}</div>
+      <button class="go alt" onclick="endRest()">Hoppa över vilan</button></section>`;
+    return;
+  }
+  const last=r.i===r.sets.length-1;
+  app.innerHTML=`<section>${setsHtml}
+    <h2>Set ${r.i+1} av ${r.sets.length}</h2>
+    <div class="big">${r.sets[r.i]}${last&&!r.neg?"+":""}</div>
+    <p class="muted">${r.neg&&!last?"Långsamma negativa, 4–5 sek ned.":last?(r.neg?"Hela pull-ups, så många du klarar.":"Så många du orkar."):EX[k].unit}</p>
+    ${last?`<label for="lr">Hur många blev det?</label><input id="lr" type="number" min="0" inputmode="numeric" value="${r.sets[r.i]}">`:""}
+    <button class="go" onclick="doneSet()">Klart</button>
+    <button class="link" onclick="if(confirm('Avbryta passet?')){clearInterval(tick);ui={mode:'home'};render()}">Avbryt pass</button>
+  </section>`;
+}
+function doneSet(){
+  const r=ui.run;
+  if(r.i===r.sets.length-1){ r.lastReps=+(document.getElementById("lr").value||0); r.i++; render(); return; }
+  r.i++; r.resting=true; r.left=r.rest; render();
+  clearInterval(tick);
+  tick=setInterval(()=>{ r.left--; const el=document.getElementById("t"); if(el) el.textContent=r.left;
+    if(r.left<=0){ endRest(); try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){} } },1000);
+}
+function endRest(){ clearInterval(tick); ui.run.resting=false; render(); }
+function finish(feel){
+  const k=state.active, p=state.p[k], r=ui.run;
+  const total=r.sets.slice(0,4).reduce((a,b)=>a+b,0)+r.lastReps;
+  const target=r.sets[4];
+  let d = feel==="lätt"?0.07 : feel==="lagom"?0.04 : -0.05;
+  if(!r.neg && r.lastReps>=target*1.5) d+=0.03;
+  if(!r.neg && r.lastReps<target) d=Math.min(d,0);
+  p.level=Math.max(0.6,p.level+d);
+  p.sessions.push({date:Date.now(),total,feel,sets:[...r.sets.slice(0,4),r.lastReps]});
+  ui={mode:"home"}; save(); render();
+}
+document.getElementById("sub").textContent="3 pass i veckan";
+load();
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
